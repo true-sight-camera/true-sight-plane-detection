@@ -1,7 +1,9 @@
 from PIL import Image
-import numpy as numpy
-import cv2
+import numpy as np
+import cv2 as cv
 import open3d as o3d
+import zlib
+
 
 def colour_image(val, minval, maxval, startcolour, stopcolour):
     f = float(val - minval) / (maxval - minval)
@@ -13,15 +15,20 @@ def create_depth_map(png_path):
     # read depth chunk and get image size
     depth_data = extract_depth_chunk(png_path)
     width,height = get_png_dimensions(png_path)
+    if not depth_data:
+        raise ValueError("Unable to parse depth_data from PNG input.")
 
-    # set up colouring functions
+    # set up colouring vars
     minval, maxval = 0, 255
-    RED, BLUE = (1,0,0), (0,0,1)
+    RED, BLUE = (255,0,0), (0,0,255)
 
-    depthColor = [[(0,0,0) for i in range(width)] for j in range(height)]
-    for i in range(width):
-        for j in range(height):
-            depthColor[i][j] = colour_image(depth_data[i][j])
+    # initialize depth colour
+    depthColor = np.zeros((height, width, 3), dtype=np.uint8)
+
+    for i in range(height):
+        for j in range(width):
+            depthColor[i][j] = colour_image(depth_data[i][j], minval, maxval, BLUE, RED)
+
 
     return depthColor
 
@@ -81,7 +88,12 @@ if __name__ == "__main__":
 
     depth_map = create_depth_map(png_path)
 
-    with open(output_path, "wb") as f:
-        f.write(depth_map)
+    cv.imshow("depth map",depth_map)
+    cv.waitKey()
+    cv.destroyAllWindows()
 
-    return
+
+    # with open(output_path, "wb") as f:
+    #     print(depth_map)
+
+        # f.write(depth_map)
