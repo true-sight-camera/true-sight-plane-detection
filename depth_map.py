@@ -10,7 +10,7 @@ def colour_image(val, minval, maxval, startcolour, stopcolour):
     return tuple(f*(b-a)+a for (a,b) in zip(startcolour, stopcolour))
 
 
-def create_depth_map(png_path):
+def create_depth_map_array(png_path):
 
     # read depth chunk and get image size
     depth_data = extract_depth_chunk(png_path)
