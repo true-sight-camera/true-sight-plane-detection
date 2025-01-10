@@ -4,6 +4,7 @@ from plane_detection.src.depth_map import create_depth_map_array
 import tempfile
 import cv2
 import numpy as np
+import rsa
 from PIL import Image
 from plane_detection.src.encryption import hash_image_sha256
 from flask_sqlalchemy import SQLAlchemy
@@ -11,12 +12,6 @@ from flask_cors import cross_origin
 from flask import Blueprint, request, send_file
 from plane_detection.main import db, app
 from models import Users, Images
-
-# app = Blueprint('app', __name__)
-
-# from main import db, app
-
-# print("in routes")
 
 @cross_origin
 @app.route('/health', methods=["GET"])
@@ -27,67 +22,145 @@ def health_check():
     except Exception as e:
         return f"Unable to open database connection: {e}", 500
 
+'''
+this method is used to register a camera with our system for the first time
+parameters: cameras pub key, user_token, email is optional
+
+user generates user_token -> basically a username
+
+TODO: test
+'''
+@cross_origin
+@app.route('/api/user', methods=["POST"])
+def create_user():
+    try:
+        token = request.form['token']
+    except Exception as e:
+        return "Missing a user_token to register", 400
+
+    try:
+        pub_key = request.form['pub_key']
+    except Exception as e:
+        return "Missing the camera pub key", 400
+
+    email = None
+    if request.form['email']:
+        email = request.form['email']
+    
+    try:
+        user = Users(user_token=token, pub_key = pub_key, email=email)
+
+        db.session.add(user)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+    return "User created successfully", 200
+
+'''
+this method is used to create an image in the database
+parameters: signed_hash, encrypted_user_token , user_token, signature
+
+module will http post req this endpoint
+
+TODO: test
+'''
 @cross_origin
 @app.route('/api/image', methods=["POST"])
 def create_image():
+    #authentication here first
+    #should be username
     try:
-        image = request.files['image']
-        # image_hash = request.form['image_hash']
-        image_bytes = bytearray(image)
+        encrypted_user_token = request.form['encrypted_token'].encode('utf8')
+        user_token = request.form["token"]
+    except:
+        return "Not all required data included", 400 
 
-        signature = find_signature_metadata(image_bytes)
+    user = Users.find_by_user_token(user_token)
+    if not user:
+        return "User is not authorized", 401
+
+    #decrypt it
+    pub_key = user.pub_key
+    unencrypted_user_token = rsa.decrypt(encrypted_user_token, pub_key).decode('utf8')
+    print(encrypted_user_token, unencrypted_user_token)
+    if unencrypted_user_token != user_token:
+        return "User is not authorized", 401
+
+
+    try:
+        # image_file = request.files['image']
+        # image_hash = request.form['image_hash']
+
+        image_bytes = bytearray(image_file)
+        # signature = find_signature_metadata(image_bytes)
 
         signed_hash = request.form['signed_hash']
 
-        #should be username
-        user_token = request.form["token"]
-        user = Users.find_by_username(user_token)
-        pub_key = user.pub_key
+        signature = request.form['signature']
+
+        #unsign the signed_hash using verify_signature from encryption.py and pub key
+        #load pub key from file -> make sure the camera stores the priv key
+        if not verify_signature(pub_key, signed_hash, signature):
+            return "Unverified Signature", 401
 
         #compute h(m) from image
         #check that they match
         #hash
-        computed_hash = hash_image_sha256(image_bytes)
+        # computed_hash = hash_image_sha256(image_bytes)
 
-        #unsign the signed_hash using verify_signature from encryption.py and pub key
-        #load pub key from file -> make sure the camera stores the priv key
-        pub_key = request.form['pub_key']
+        # if computed_hash != image_hash:
+        #     print(image_bytes)
+        #     print(computed_hash)
+        #     return "Hashes don't match", 404 #in traffic bytes got shifted around
 
-        verified_hash = verify_signature(pub_key, signed_hash)
-
-        if computed_hash != image_hash:
-            print(image_bytes)
-            print(computed_hash)
-            return "Hashes don't match", 404 #in traffic bytes got shifted around
+        #create image and save it
+        image = Images(image_hash = computed_hash, user_id = user.id, last_accessed=datetime.now(timezone.utc))
+        
+        db.session.add(image)
+        db.session.commit()
         
     except Exception as e:
         db.session.rollback()
-        return f"Unable to create image in database: {e}", 500
+        return f"Unable to create image in database: {e}", 400
 
+'''
+this method checks whether an image hash matches the user id send
+
+user has to parse user_token from metadata and include in request
+TODO: verify the user_token
+'''
 @cross_origin
-@app.route('/api/image/<hash>', methods=["GET", "PUT", "DELETE"])
-def image_handler(image_hash):
+@app.route('/api/image/<hash>/<user_token>', methods=["GET", "PUT", "DELETE"])
+def image_handler(image_hash, user_token):
     image = Images.get_by_hash(image_hash)
     if not image:
         return "Image not found", 404
 
     if request.method == "GET":
         image.last_accessed= lambda: datetime.now(timezone.utc)
+        #verify user token
+        user = Users.find_by_user_token(user_token)
         db.session.commit()
+
+        if image.user_id !=- user.id:
+            return "Image user doesn't match sent user", 401
+
         return image, 200
-    elif request.method == "PUT":
-        user_token = request.form['token']
-        user = Users.find_by_username(user_token)
+    elif request.method == "PUT": # this method might not be useful
+        user_token = user_token
+        user = Users.find_by_user_token(user_token)
         image.user_id = user.id
         db.session.commit()
         return "Successfully updated owner", 200
-    elif request.method == "DELETE":
+    elif request.method == "DELETE": # idk why someone would ever use this lol
         Images.delete(image.id)
         return "Successfully deleted image", 200
     else:
         return "Method not allowed", 401
 
-
+'''
+not sure what this is meant to do atp
+'''
 @cross_origin()
 @app.route('/api/image_hash', methods=["POST"])
 def image_hash_check():
@@ -107,23 +180,29 @@ def image_hash_check():
 
     # try:
 
+'''
+this method overlays a depth map onto the sent image
+parameters: image, 
 
+-> this might not be needed user_token, signature, signed_hash,
+
+user gets the image, user_token from metadata, signature from metadata, then hash the image and send the signature with the user token
+
+TODO: write verification of hash
+'''
 @cross_origin()
 @app.route("/api/depth-map", methods=["POST"])
 def depth_map():
     #parse image from request
     if request.method != "POST":
         return
-    print(request.files)
-    # image = request.files['image']
+
     try:
         image = request.files['image']
     except Exception as e:
         return f"Unable to parse image file: {e}", 500
 
     try: 
-        #get image hash
-
         #make tempfile for received image
         temp_file = tempfile.NamedTemporaryFile(suffix=".png")
         filename = temp_file.name
