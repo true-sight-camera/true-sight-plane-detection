@@ -13,13 +13,15 @@ class Base(DeclarativeBase):
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@localhost:5432/capstone"
 
-db = SQLAlchemy(model_class=Base)
+db = SQLAlchemy(app)
 
-db.init_app(app)
+# db.init_app(app)
+
+# with app.app_context():
+#   from plane_detection import models
+#   db.create_all()
 
 from plane_detection.src import routes
-# app.register_blueprint(routes_bp)
-
 
 if __name__ == "__main__":
-    app.run(debug=True)
+  app.run(debug=True)

@@ -4,26 +4,30 @@ from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, timezone
 from cryptography.hazmat.primitives.asymmetric import rsa
 from flask_sqlalchemy import SQLAlchemy
-from main import Base
+from main import db
 import uuid
 
-class Users(Base):
+class Users(db.Model):
     __tablename__ = 'users'
     id = mapped_column(UUID(as_uuid=True),primary_key=True, default=uuid.uuid4)
-    user_token: Mapped[str] = mapped_column(unique=True, nullable = False)
+    username: Mapped[str] = mapped_column(unique=True, nullable = False)
+    complete_password: Mapped[str] = mapped_column(nullable=False) # salt + hashed_pw received
+    salt: Mapped[str] = mapped_column(nullable = False)
     email: Mapped[str] = mapped_column(unique = True,nullable = True)
-    pub_key: Mapped[str] = mapped_column(nullable = False)
+    pub_key: Mapped[str] = mapped_column(nullable = True)
 
-    def find_by_user_token(user_token):
-        Users.query.filter_by(user_token=user_token).first_or_404()
+    # jwt: Mapped[str] = mapped_column(nullable=True) for future iterations maybe
+
+    def find_by_username(username):
+        Users.query.filter_by(username=username).first_or_404()
         
 
 
-class Images(Base):
+class Images(db.Model):
     __tablename__ = 'images'
     id: Mapped[int] = mapped_column(primary_key=True)
     image_hash: Mapped[str] = mapped_column(nullable = False)
-    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    user_id = mapped_column(ForeignKey('users.id'), nullable=False)
     last_accessed: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def get_by_hash(image_hash):

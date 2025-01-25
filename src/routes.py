@@ -5,6 +5,7 @@ import tempfile
 import cv2
 import numpy as np
 import rsa
+import random
 from PIL import Image
 from plane_detection.src.encryption import hash_image_sha256
 from flask_sqlalchemy import SQLAlchemy
@@ -12,6 +13,16 @@ from flask_cors import cross_origin
 from flask import Blueprint, request, send_file
 from plane_detection.main import db, app
 from models import Users, Images
+import uuid
+
+ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+def generate_salt():
+    chars=[]
+    for i in range(16):
+        chars.append(random.choice(ALPHABET))
+    return ''.join(chars)
+    
 
 @cross_origin
 @app.route('/health', methods=["GET"])
@@ -21,39 +32,101 @@ def health_check():
         return "Good health", 200
     except Exception as e:
         return f"Unable to open database connection: {e}", 500
+    
+'''
+this method is used to create a user in the database w/o the pub_key
+online sign up
+parameters: username, hashed_password (by sha_256)
+
+TODO: test
+'''
+@cross_origin
+@app.route('/api/user-web', methods=['POST'])
+def create_user():
+    try:
+        username = request.form['username']
+    except:
+        return "Missing username", 400
+
+    try:
+        hashed_pw = request.form['password']
+    except:
+        return "Missing password", 400
+    
+    try:
+        email = request.form['email']
+    except:
+        return "Missing email", 400
+
+    salt = generate_salt();
+
+    try:
+        new_user = Users(id = uuid.uuid4(),salt = salt, username=username, email=email, complete_password = salt+hashed_pw)
+        db.session.add(new_user)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return f"Unable to add user: {e}", 500
+    
+    return "User has been signed up", 200
+
+'''
+this method checks if username is valid
+meant for web UI on change if username is taken
+parameters: username
+
+returns 200, 401
+TODO: test
+'''
+@cross_origin
+@app.route('/api/username/<username>', methods=['GET'])
+def check_username(username):
+    if request.method != "GET":
+        return "Method not allowed", 403
+    user = Users.find_by_username(username)
+    if user == None:
+        return "Username valid", 200
+    else:
+        return "Username taken", 401
 
 '''
 this method is used to register a camera with our system for the first time
-parameters: cameras pub key, user_token, email is optional
+parameters: cameras pub key, username, password
 
+find user from database <- needs to register online first, 
+moduel sends pub key
 user generates user_token -> basically a username
 
 TODO: test
 '''
 @cross_origin
-@app.route('/api/user', methods=["POST"])
-def create_user():
+@app.route('/api/user', methods=["UPDATE"])
+def populate_user():
     try:
-        token = request.form['token']
+        token = request.form['username']
     except Exception as e:
         return "Missing a user_token to register", 400
+    
+    try:
+        hashed_password = request.form['password']
+    except Exception as e:
+        return "Missing password", 400
 
     try:
         pub_key = request.form['pub_key']
     except Exception as e:
         return "Missing the camera pub key", 400
-
-    email = None
-    if request.form['email']:
-        email = request.form['email']
     
     try:
-        user = Users(user_token=token, pub_key = pub_key, email=email)
-
-        db.session.add(user)
+        user = Users.find_by_username(token)
+        if user.salt + hashed_password != user.complete_password:
+            return "Incorrect password", 401
+        
+        user.pub_key = pub_key
         db.session.commit()
     except Exception as e:
         db.session.rollback()
+        return "Unable to add pub key to user", 500
     return "User created successfully", 200
 
 '''
@@ -71,11 +144,11 @@ def create_image():
     #should be username
     try:
         encrypted_user_token = request.form['encrypted_token'].encode('utf8')
-        user_token = request.form["token"]
+        username = request.form["username"]
     except:
         return "Not all required data included", 400 
 
-    user = Users.find_by_user_token(user_token)
+    user = Users.find_by_username(username)
     if not user:
         return "User is not authorized", 401
 
@@ -83,7 +156,7 @@ def create_image():
     pub_key = user.pub_key
     unencrypted_user_token = rsa.decrypt(encrypted_user_token, pub_key).decode('utf8')
     print(encrypted_user_token, unencrypted_user_token)
-    if unencrypted_user_token != user_token:
+    if unencrypted_user_token != username:
         return "User is not authorized", 401
 
 
