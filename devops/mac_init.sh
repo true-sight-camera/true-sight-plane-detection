@@ -1,20 +1,6 @@
-#!/bin/bash
+# !/bin/bash
 
 # Initial Setup Script 
-
-# FILE=.env
-# if test -f "$FILE"; then
-#     echo "$FILE found."
-# else 
-#     echo "Halting, $FILE not found."
-#     exit
-# fi
-
-# echo Building Images
-# docker-compose -f docker-dev.yml build 
-
-# echo Starting Containers 
-# docker-compose -f docker-dev.yml up -d
 
 echo Making Postgres and App
 
@@ -31,12 +17,14 @@ done
 export FLASK_APP=main
 export FLASK_ENV=development
 
-python3 -m pip install -r requirements.txt
+# python3 -m pip install -r requirements.txt
 
 #should probably ensure the tables exist in the db
 
 #start backend
-python3 -m flask run --host=0.0.0.0 --debug
+gunicorn main:app --bind 0.0.0.0:5000 --reload
+
+# export PATH=/Library/PostgreSQL/17/bin:$PATH
 
 # echo Creating Tables
 # docker exec app python3 app/scripts/createTables.py

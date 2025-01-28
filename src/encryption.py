@@ -31,26 +31,26 @@ def load_public_key(file_path: str) -> rsa.RSAPublicKey:
     except Exception as e:
         raise Exception(f"Error reading public key file: {str(e)}")
 
-def sign_message(private_key: rsa.RSAPrivateKey, message: bytes) -> bytes:
+def sign_message(private_key: rsa.RSAPrivateKey, message: bytes, prehashed = True) -> bytes:
     """Sign a message using the private key."""
     try:
         signature = private_key.sign(
             message,
             padding.PKCS1v15(),
-            Prehashed(hashes.SHA256())
+            Prehashed(hashes.SHA256()) if prehashed else hashes.SHA256()
         )
         return signature
     except Exception as e:
         raise Exception(f"Error signing message: {str(e)}")
 
-def verify_signature(public_key: rsa.RSAPublicKey, message: bytes, signature: bytes) -> bool:
+def verify_signature(public_key: rsa.RSAPublicKey, message: bytes, signature: bytes, prehashed = True) -> bool:
     """Verify a signature using the public key."""
     try:
         public_key.verify(
             signature,
             message,
             padding.PKCS1v15(),
-            Prehashed(hashes.SHA256())
+            Prehashed(hashes.SHA256()) if prehashed else hashes.SHA256()
         )
         return True
     except Exception as e:

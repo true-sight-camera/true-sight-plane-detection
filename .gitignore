@@ -27,3 +27,5 @@ venv
 
 capstone
 capstone.pub
+
+__pycache__

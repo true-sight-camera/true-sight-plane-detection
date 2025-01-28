@@ -1,44 +1,29 @@
 
 from sqlalchemy import text
-from plane_detection.src.depth_map import create_depth_map_array
+from src.depth_map import create_depth_map_array
 import tempfile
 import cv2
 import numpy as np
-import rsa
 import random
 from PIL import Image
-from plane_detection.src.encryption import hash_image_sha256
-from flask_sqlalchemy import SQLAlchemy
+from src.encryption import verify_signature
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.hazmat.primitives.asymmetric import rsa
 from flask_cors import cross_origin
 from flask import Blueprint, request, send_file
-from plane_detection.main import db, app
-from models import Users, Images
+from main import db, app
+from models import Users, Images, DevImages
 import uuid
-
-ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-def generate_salt():
-    chars=[]
-    for i in range(16):
-        chars.append(random.choice(ALPHABET))
-    return ''.join(chars)
-    
-
-@cross_origin
-@app.route('/health', methods=["GET"])
-def health_check():
-    try:
-        db.session.execute(text("SELECT 1"))
-        return "Good health", 200
-    except Exception as e:
-        return f"Unable to open database connection: {e}", 500
+import datetime
+import io
+from binascii import unhexlify
     
 '''
 this method is used to create a user in the database w/o the pub_key
 online sign up
 parameters: username, hashed_password (by sha_256)
 
-TODO: test
+UPDATE: WORKS
 '''
 @cross_origin
 @app.route('/api/user-web', methods=['POST'])
@@ -47,6 +32,9 @@ def create_user():
         username = request.form['username']
     except:
         return "Missing username", 400
+
+    if db.session.execute(db.select(Users).filter_by(username=username)).scalar() is not None:
+        return "User already exists", 401
 
     try:
         hashed_pw = request.form['password']
@@ -76,14 +64,15 @@ meant for web UI on change if username is taken
 parameters: username
 
 returns 200, 401
-TODO: test
+UPDATE: WORKS
 '''
 @cross_origin
 @app.route('/api/username/<username>', methods=['GET'])
 def check_username(username):
     if request.method != "GET":
         return "Method not allowed", 403
-    user = Users.find_by_username(username)
+    user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+    # user = Users.find_by_username(username)
     if user == None:
         return "Username valid", 200
     else:
@@ -91,21 +80,23 @@ def check_username(username):
 
 '''
 this method is used to register a camera with our system for the first time
-parameters: cameras pub key, username, password
+parameters: cameras pub_key, username, password
 
 find user from database <- needs to register online first, 
 moduel sends pub key
-user generates user_token -> basically a username
+username
 
-TODO: test
+return 200, 403
+
+UPDATE:  DONE
 '''
 @cross_origin
-@app.route('/api/user', methods=["UPDATE"])
-def populate_user():
+@app.route('/api/user', methods=["PUT"])
+def update_user_pub_key():
     try:
-        token = request.form['username']
+        username = request.form['username']
     except Exception as e:
-        return "Missing a user_token to register", 400
+        return "Missing a username to register", 400
     
     try:
         hashed_password = request.form['password']
@@ -118,7 +109,11 @@ def populate_user():
         return "Missing the camera pub key", 400
     
     try:
-        user = Users.find_by_username(token)
+        user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+
+        if user == None:
+            return "User does not exist", 401
+
         if user.salt + hashed_password != user.complete_password:
             return "Incorrect password", 401
         
@@ -126,16 +121,16 @@ def populate_user():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return "Unable to add pub key to user", 500
-    return "User created successfully", 200
+        return f"Unable to add pub key to user: {e}", 500
+    return "User pub key updated successfully", 200
 
 '''
 this method is used to create an image in the database
-parameters: signed_hash, encrypted_user_token , user_token, signature
+parameters: signed_hash, signature created from signed_hash, encrypted_username, username,
 
 module will http post req this endpoint
 
-TODO: test
+UPDATE: done
 '''
 @cross_origin
 @app.route('/api/image', methods=["POST"])
@@ -143,20 +138,20 @@ def create_image():
     #authentication here first
     #should be username
     try:
-        encrypted_user_token = request.form['encrypted_token'].encode('utf8')
+        encrypted_username = request.form['encrypted_username']
         username = request.form["username"]
     except:
         return "Not all required data included", 400 
 
-    user = Users.find_by_username(username)
-    if not user:
-        return "User is not authorized", 401
+    user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+    if user == None:
+        return "User does not exist", 401
 
     #decrypt it
-    pub_key = user.pub_key
-    unencrypted_user_token = rsa.decrypt(encrypted_user_token, pub_key).decode('utf8')
-    print(encrypted_user_token, unencrypted_user_token)
-    if unencrypted_user_token != username:
+    
+    pub_key = load_pem_public_key(bytes(user.pub_key, encoding="utf-8"))
+
+    if not verify_signature(pub_key, bytes(username, encoding="utf-8"), unhexlify(encrypted_username), False):
         return "User is not authorized", 401
 
 
@@ -164,33 +159,25 @@ def create_image():
         # image_file = request.files['image']
         # image_hash = request.form['image_hash']
 
-        image_bytes = bytearray(image_file)
+        # image_bytes = bytearray(image_file)
         # signature = find_signature_metadata(image_bytes)
 
         signed_hash = request.form['signed_hash']
 
-        signature = request.form['signature']
+        hash_signature = request.form['hash_signature']
 
         #unsign the signed_hash using verify_signature from encryption.py and pub key
         #load pub key from file -> make sure the camera stores the priv key
-        if not verify_signature(pub_key, signed_hash, signature):
+        if not verify_signature(pub_key, unhexlify(signed_hash), unhexlify(hash_signature)):
             return "Unverified Signature", 401
 
-        #compute h(m) from image
-        #check that they match
-        #hash
-        # computed_hash = hash_image_sha256(image_bytes)
-
-        # if computed_hash != image_hash:
-        #     print(image_bytes)
-        #     print(computed_hash)
-        #     return "Hashes don't match", 404 #in traffic bytes got shifted around
-
         #create image and save it
-        image = Images(image_hash = computed_hash, user_id = user.id, last_accessed=datetime.now(timezone.utc))
+        image = Images(image_hash = signed_hash, user_id = user.id, last_accessed=datetime.datetime.now(datetime.timezone.utc))
+
         
         db.session.add(image)
         db.session.commit()
+        return 'Image created successfully', 200
         
     except Exception as e:
         db.session.rollback()
@@ -199,34 +186,38 @@ def create_image():
 '''
 this method checks whether an image hash matches the user id send
 
-user has to parse user_token from metadata and include in request
-TODO: verify the user_token
+client has to parse username from metadata and include in request
+
 '''
 @cross_origin
-@app.route('/api/image/<hash>/<user_token>', methods=["GET", "PUT", "DELETE"])
-def image_handler(image_hash, user_token):
-    image = Images.get_by_hash(image_hash)
+@app.route('/api/image/<image_hash>/<username>', methods=["GET", "PUT", "DELETE"])
+def image_handler(image_hash, username):
+    image = db.session.execute(db.select(Images).filter_by(image_hash=image_hash)).scalar()
     if not image:
         return "Image not found", 404
+    
+    user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+    if not user:
+        return "User not found", 404
 
     if request.method == "GET":
-        image.last_accessed= lambda: datetime.now(timezone.utc)
-        #verify user token
-        user = Users.find_by_user_token(user_token)
+        image.last_accessed= datetime.datetime.now(datetime.timezone.utc)
         db.session.commit()
+        #verify user token
 
-        if image.user_id !=- user.id:
+        if image.user_id != user.id:
             return "Image user doesn't match sent user", 401
 
-        return image, 200
+        return "Image owner and user_id match", 200
     elif request.method == "PUT": # this method might not be useful
-        user_token = user_token
-        user = Users.find_by_user_token(user_token)
         image.user_id = user.id
         db.session.commit()
         return "Successfully updated owner", 200
-    elif request.method == "DELETE": # idk why someone would ever use this lol
-        Images.delete(image.id)
+    elif request.method == "DELETE": # idk why someone would ever use this lol maybe we found that someone uploaded fake data
+        if image.id != user.id: #maybe we should authenticate as either root or the image owner
+            return "No permissions to delete", 401
+        db.session.delete(image)
+        db.session.commit()
         return "Successfully deleted image", 200
     else:
         return "Method not allowed", 401
@@ -261,7 +252,7 @@ parameters: image,
 
 user gets the image, user_token from metadata, signature from metadata, then hash the image and send the signature with the user token
 
-TODO: write verification of hash
+UPDATE: done
 '''
 @cross_origin()
 @app.route("/api/depth-map", methods=["POST"])
@@ -298,3 +289,50 @@ def depth_map():
         return send_file(overlay_filename, mimetype="image/png")
     except Exception as e:
         return f"Unable to overlay depth map {e}", 500
+    
+ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+def generate_salt():
+    chars=[]
+    for i in range(16):
+        chars.append(random.choice(ALPHABET))
+    return ''.join(chars)
+    
+
+# @cross_origin
+@app.route('/health', methods=["GET"])
+def health_check():
+    try:
+        db.session.execute(text("SELECT 1"))
+        return "Good health", 200
+    except Exception as e:
+        return f"Unable to open database connection: {e}", 500
+
+"""
+requested image store for files
+
+TODO: TEST
+"""
+    
+@app.route('/dev/image-store/', methods=["POST", "GET"])
+def dev_images_handler():
+    if request.method == "GET":
+        image_id = request.args.get('id')
+        image = db.session.execute(db.select(DevImages).filter_by(id=image_id)).scalar()
+
+        return send_file(io.BytesIO(image.data), mimetype=image.mimetype, as_attachment=True,download_name=file.filename)
+    
+    elif request.method == 'POST':
+        try:
+            file = request.files['file']
+            new_file = DevImages(
+                filename=file.filename,
+                data=file.read(),
+                mimetype=file.mimetype
+            )
+            db.session.add(new_file)
+            db.session.commit()
+            return "Image uploaded successfully", 200
+        except Exception as e:
+            db.session.rollback()
+            return f"Image not uploaded: {e}", 400

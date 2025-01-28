@@ -15,8 +15,9 @@ def createTables():
     )
 
     drop = (
-        "DROP TABLE images",
+        "DROP TABLE dev_images",
         "DROP TABLE users",
+        "DROP TABLE images",
         )
 
     commands = (
@@ -27,7 +28,7 @@ def createTables():
             complete_password VARCHAR(255) NOT NULL,
             salt VARCHAR(16) NOT NULL,
             email VARCHAR(255) NOT NULL,
-            pub_key VARCHAR(127)
+            pub_key VARCHAR(600)
         )
         """,
         """
@@ -38,6 +39,14 @@ def createTables():
             last_accessed TIMESTAMP
         )
         """,
+        """
+        CREATE TABLE dev_images (
+        id SERIAL PRIMARY KEY,
+        filename VARCHAR(255) NOT NULL,
+        data BYTEA NOT NULL,
+        mimetype VARCHAR(100) NOT NULL
+        )
+        """
         )
     try:
         cur = conn.cursor()
@@ -59,6 +68,7 @@ def createTables():
 
         # commit the changes
         conn.commit()
+        print("created tables")
     except (Exception, psycopg2.DatabaseError) as error:
         print('oop')
         print(error)
