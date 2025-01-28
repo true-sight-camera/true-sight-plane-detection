@@ -18,14 +18,14 @@
 
 echo Making Postgres and App
 
-sudo service postgresql start
+# sudo service postgresql start
 
 # Wait for db to be up
-until nc -z localhost 5432
-do
-    echo "waiting for db container..."
-    sleep 0.5
-done
+# until nc -z localhost 5432
+# do
+#     echo "waiting for db container..."
+#     sleep 0.5
+# done
 
 
 export FLASK_APP=main
@@ -34,7 +34,7 @@ export FLASK_ENV=development
 #should probably ensure the tables exist in the db
 
 #start backend
-python3 -m flask run --host=0.0.0.0 --debug
+gunicorn main:app --bind 0.0.0.0:5000 --reload
 
 # echo Creating Tables
 # docker exec app python3 app/scripts/createTables.py
