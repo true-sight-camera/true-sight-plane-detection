@@ -46,7 +46,7 @@ def create_user():
     except:
         return "Missing email", 400
 
-    salt = generate_salt();
+    salt = generate_salt()
 
     try:
         new_user = Users(id = uuid.uuid4(),salt = salt, username=username, email=email, complete_password = salt+hashed_pw)
