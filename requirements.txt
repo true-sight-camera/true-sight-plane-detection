@@ -1,6 +1,5 @@
 numpy
 opencv-python
-open3d
 Flask
 flask-cors
 Flask-SQLAlchemy
