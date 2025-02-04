@@ -190,8 +190,8 @@ client has to parse username from metadata and include in request
 
 '''
 @cross_origin
-@app.route('/api/image/<image_hash>/<username>', methods=["GET", "PUT", "DELETE"])
-def image_handler(image_hash, username):
+@app.route('/api/image/<image_hash>/<username>/<signature>', methods=["GET", "PUT", "DELETE"])
+def image_handler(image_hash, username, signature):
     image = db.session.execute(db.select(Images).filter_by(image_hash=image_hash)).scalar()
     if not image:
         return "Image not found", 404
@@ -201,6 +201,12 @@ def image_handler(image_hash, username):
         return "User not found", 404
 
     if request.method == "GET":
+        #get signature as well, 
+        pub_key = load_pem_public_key(bytes(user.pub_key, encoding="utf-8"))
+
+        if not verify_signature(pub_key, unhexlify(image_hash), unhexlify(signature), False):
+            return "Signature is not authorized", 401
+        
         image.last_accessed= datetime.datetime.now(datetime.timezone.utc)
         db.session.commit()
         #verify user token
