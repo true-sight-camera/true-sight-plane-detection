@@ -18,14 +18,14 @@
 
 echo Making Postgres and App
 
-sudo service postgresql start
+# sudo service postgresql start
 
 # Wait for db to be up
-until nc -z localhost 5432
-do
-    echo "waiting for db container..."
-    sleep 0.5
-done
+# until nc -z localhost 5432
+# do
+#     echo "waiting for db container..."
+#     sleep 0.5
+# done
 
 
 export FLASK_APP=main
