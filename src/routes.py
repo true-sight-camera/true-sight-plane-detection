@@ -17,6 +17,7 @@ import uuid
 import datetime
 import io
 from binascii import unhexlify
+
     
 '''
 this method is used to create a user in the database w/o the pub_key
@@ -130,6 +131,8 @@ parameters: signed_hash, signature created from signed_hash, encrypted_username,
 
 module will http post req this endpoint
 
+NOTE: don't flatten the image in python after reading the bytes, just hash using sha256 immediately after adding username to data. react cannot flatten and convert to rgba so please don't.
+
 UPDATE: done
 '''
 @cross_origin
@@ -190,8 +193,8 @@ client has to parse username from metadata and include in request
 
 '''
 @cross_origin
-@app.route('/api/image/<image_hash>/<username>', methods=["GET", "PUT", "DELETE"])
-def image_handler(image_hash, username):
+@app.route('/api/image/<image_hash>/<username>/<signature>', methods=["GET", "PUT", "DELETE"])
+def image_handler(image_hash, username, signature):
     image = db.session.execute(db.select(Images).filter_by(image_hash=image_hash)).scalar()
     if not image:
         return "Image not found", 404
@@ -204,9 +207,20 @@ def image_handler(image_hash, username):
         image.last_accessed= datetime.datetime.now(datetime.timezone.utc)
         db.session.commit()
         #verify user token
+        pub_key = load_pem_public_key(bytes(user.pub_key, encoding="utf-8"))
+
+        #unsign the signed_hash using verify_signature from encryption.py and pub key
+        #load pub key from file -> make sure the camera stores the priv key
+        print('what 1')
+        print(unhexlify(image_hash))
+        print(unhexlify(signature))
+        if not verify_signature(pub_key, unhexlify(image_hash), unhexlify(signature)):
+            return "Unverified Signature", 401
+        print('what 2')
 
         if image.user_id != user.id:
             return "Image user doesn't match sent user", 401
+        print('what 3')
 
         return "Image owner and user_id match", 200
     elif request.method == "PUT": # this method might not be useful
@@ -242,7 +256,6 @@ def image_hash_check():
     except Exception as e:
         return f"Unable to parse image file: {e}", 500
 
-    # try:
 
 '''
 this method overlays a depth map onto the sent image

@@ -33,6 +33,8 @@ export FLASK_ENV=development
 
 #should probably ensure the tables exist in the db
 
+pip install -r requirements.txt
+
 #start backend
 # python3 -m flask run --host=0.0.0.0 --debug
 gunicorn main:app --bind 0.0.0.0:5000 --reload
