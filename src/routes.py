@@ -287,8 +287,10 @@ def depth_map():
         depth_map_array = create_depth_map_array(filename)
         image_array = cv2.imread(filename)
 
+        alpha = 1
+        beta = 1 - alpha
         # overlay depth map at 50% capacity
-        overlay_image = cv2.addWeighted(depth_map_array, 0.6, image_array, 0.4, gamma=0)
+        overlay_image = cv2.addWeighted(depth_map_array, alpha, image_array, beta, gamma=0)
 
         #save the overlay image temporarily
         overlay_file = tempfile.NamedTemporaryFile(suffix=".png")
