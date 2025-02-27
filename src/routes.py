@@ -194,7 +194,7 @@ client has to parse username from metadata and include in request
 '''
 @cross_origin
 @app.route('/api/image/<image_hash>/<signature>', methods=["GET", "PUT", "DELETE"])
-def image_handler(image_hash, username, signature):
+def image_handler(image_hash, signature):
     image = db.session.execute(db.select(Images).filter_by(image_hash=image_hash)).scalar()
     if not image:
         return "Image not found", 404
@@ -216,11 +216,9 @@ def image_handler(image_hash, username, signature):
         # print(unhexlify(signature))
         if not verify_signature(pub_key, unhexlify(image_hash), unhexlify(signature)):
             return "Unverified Signature", 401
-        print('what 2')
 
         if image.user_id != user.id:
             return "Image user doesn't match sent user", 401
-        print('what 3')
 
         return "Image owner and user_id match", 200
     elif request.method == "PUT": # this method might not be useful
