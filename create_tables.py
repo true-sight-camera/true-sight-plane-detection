@@ -15,9 +15,9 @@ def createTables():
     )
 
     drop = (
+        "DROP TABLE images",
         "DROP TABLE dev_images",
         "DROP TABLE users",
-        "DROP TABLE images",
         )
 
     commands = (

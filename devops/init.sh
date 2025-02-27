@@ -18,7 +18,7 @@
 
 echo Making Postgres and App
 
-# sudo service postgresql start
+sudo service postgresql start
 
 # Wait for db to be up
 # until nc -z localhost 5432

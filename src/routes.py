@@ -193,13 +193,13 @@ client has to parse username from metadata and include in request
 
 '''
 @cross_origin
-@app.route('/api/image/<image_hash>/<username>/<signature>', methods=["GET", "PUT", "DELETE"])
+@app.route('/api/image/<image_hash>/<signature>', methods=["GET", "PUT", "DELETE"])
 def image_handler(image_hash, username, signature):
     image = db.session.execute(db.select(Images).filter_by(image_hash=image_hash)).scalar()
     if not image:
         return "Image not found", 404
     
-    user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+    user = db.session.execute(db.select(Users).filter_by(id=image.user_id)).scalar()
     if not user:
         return "User not found", 404
 
@@ -211,9 +211,9 @@ def image_handler(image_hash, username, signature):
 
         #unsign the signed_hash using verify_signature from encryption.py and pub key
         #load pub key from file -> make sure the camera stores the priv key
-        print('what 1')
-        print(unhexlify(image_hash))
-        print(unhexlify(signature))
+        # print('what 1')
+        # print(unhexlify(image_hash))
+        # print(unhexlify(signature))
         if not verify_signature(pub_key, unhexlify(image_hash), unhexlify(signature)):
             return "Unverified Signature", 401
         print('what 2')
