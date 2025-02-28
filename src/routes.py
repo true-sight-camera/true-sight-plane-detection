@@ -1,22 +1,29 @@
 
 from sqlalchemy import text
-from src.depth_map import create_depth_map_array
 import tempfile
 import cv2
 import numpy as np
 import random
 from PIL import Image
-from src.encryption import verify_signature
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import rsa
 from flask_cors import cross_origin
-from flask import Blueprint, request, send_file
-from main import db, app
-from models import Users, Images, DevImages
+from flask import jsonify, request, send_file
 import uuid
 import datetime
 import io
 from binascii import unhexlify
+import base64
+
+from main import db, app
+from models import Users, Images, DevImages
+from src.depth_map import create_depth_map_array
+from src.encryption import verify_signature
+
+
+# In-memory storage (list) for image blobs
+MAX_RAM_IMAGES = 5
+images_storage = []
 
     
 '''
@@ -349,3 +356,41 @@ def dev_images_handler():
         except Exception as e:
             db.session.rollback()
             return f"Image not uploaded: {e}", 400
+        
+
+@app.route('/api/store_image', methods=['POST'])
+@cross_origin()
+def store_image():
+    try:
+        # request.data will contain the raw blob sent in the request body
+        image_blob = request.data
+
+        # Append the received blob to our in-memory list
+        images_storage.append(image_blob)
+
+        # Stop ourselves from storing too many images in RAM
+        if len(images_storage) > MAX_RAM_IMAGES:
+            images_storage.pop(0)
+
+        return jsonify({"message": "Image stored successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    
+
+@app.route('/api/images', methods=['GET'])
+@cross_origin()
+def get_images():
+    """
+    Return the list of stored images as base64-encoded strings.
+    This makes it possible to include them in a JSON response.
+    """
+    try:
+        # Convert each blob in images_storage to a base64-encoded string
+        base64_images = [
+            base64.b64encode(image_blob).decode('utf-8')
+            for image_blob in images_storage
+        ]
+        return jsonify(base64_images), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
