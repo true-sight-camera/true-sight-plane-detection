@@ -39,6 +39,10 @@ class DevImages(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     filename : Mapped[str] = mapped_column(nullable=False)
-    data : Mapped[bytes] = mapped_column(nullable=False)
     mimetype: Mapped[str] = mapped_column(nullable=False)
+    user_id = mapped_column(ForeignKey('users.id'), nullable=False)
+    image_hash: Mapped[str] = mapped_column(nullable = False)
+
+    # def serialize(self):
+
 

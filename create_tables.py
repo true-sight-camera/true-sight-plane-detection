@@ -43,8 +43,9 @@ def createTables():
         CREATE TABLE dev_images (
         id SERIAL PRIMARY KEY,
         filename VARCHAR(255) NOT NULL,
-        data BYTEA NOT NULL,
-        mimetype VARCHAR(100) NOT NULL
+        mimetype VARCHAR(100) NOT NULL,
+        user_id UUID references users(id) NOT NULL,
+        image_hash VARCHAR(255) NOT NULL
         )
         """
         )

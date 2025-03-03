@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import rsa
 from flask_cors import cross_origin
 from flask import Blueprint, request, send_file
-from main import db, app
+from main import db, app, bucket
 from models import Users, Images, DevImages
 import uuid
 import datetime
@@ -322,30 +322,69 @@ def health_check():
         return f"Unable to open database connection: {e}", 500
 
 """
-requested image store for files
+parameters: encrypted_username, username (in url), image to store, the image's hash (calculated on RPi)
+
+hosted at: https://storage.cloud.google.com/truesight-camera-images/<hash>
+
+blob store for images on GCP
 
 TODO: TEST
 """
     
-@app.route('/dev/image-store/', methods=["POST", "GET"])
-def dev_images_handler():
+@app.route('/api/image-store/<username>', methods=["POST", "GET"])
+def dev_images_handler(username):
     if request.method == "GET":
-        image_id = request.args.get('id')
-        image = db.session.execute(db.select(DevImages).filter_by(id=image_id)).scalar()
+        user = username
+        user = db.session.execute(db.select(Users).filter_by(username=user)).scalar()
+        images = db.session.execute(db.select(DevImages).filter_by(user_id = user.id)).scalars().all()
 
-        return send_file(io.BytesIO(image.data), mimetype=image.mimetype, as_attachment=True,download_name=file.filename)
+        ret = [serialize_dev_image(image) for image in images]
+
+        return ret, 200
     
     elif request.method == 'POST':
         try:
+            encrypted_username = request.form['encrypted_username']
+        except:
+            return "Not all required data included", 400 
+
+        user = db.session.execute(db.select(Users).filter_by(username=username)).scalar()
+        if user == None:
+            return "User does not exist", 401
+
+        #decrypt it
+        
+        pub_key = load_pem_public_key(bytes(user.pub_key, encoding="utf-8"))
+
+        if not verify_signature(pub_key, bytes(username, encoding="utf-8"), unhexlify(encrypted_username), False):
+            return "User is not authorized", 401
+        try:
+            image_hash = request.form['image_hash']
             file = request.files['file']
+
             new_file = DevImages(
                 filename=file.filename,
-                data=file.read(),
-                mimetype=file.mimetype
+                user_id = user.id,
+                mimetype=file.mimetype,
+                image_hash = image_hash
             )
+
+            #upload to blob store
+            blob = bucket.blob(image_hash)
+            blob.upload_from_string(file.read(), content_type='image/png',  timeout=60)
+
             db.session.add(new_file)
             db.session.commit()
             return "Image uploaded successfully", 200
         except Exception as e:
             db.session.rollback()
             return f"Image not uploaded: {e}", 400
+
+def serialize_dev_image(image):
+    return {
+        "id": image.id,
+        "filename": image.filename,
+        # "user_id": image.user_id,
+        # "mimetype": image.mimetype,
+        "image_hash": image.image_hash,
+    }

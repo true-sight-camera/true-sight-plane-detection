@@ -2,6 +2,12 @@ from flask import Flask, request, send_file
 from flask_cors import CORS, cross_origin
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
+from google.cloud import storage
+
+storage_client = storage.Client()
+
+bucket_name = 'truesight-camera-images'
+bucket = storage_client.bucket(bucket_name)
 
 class Base(DeclarativeBase):
   pass

@@ -8,3 +8,4 @@ cryptography
 rsa
 gunicorn
 Pillow
+google-cloud-storage
