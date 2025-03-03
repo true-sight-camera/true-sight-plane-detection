@@ -392,7 +392,6 @@ def dev_images_handler(username):
         except Exception as e:
             db.session.rollback()
             return f"Image not uploaded: {e}", 400
-<<<<<<< HEAD
 
 def serialize_dev_image(image):
     return {
@@ -402,7 +401,6 @@ def serialize_dev_image(image):
         # "mimetype": image.mimetype,
         "image_hash": image.image_hash,
     }
-=======
         
 
 @app.route('/api/store_image', methods=['POST'])
@@ -441,4 +439,3 @@ def get_images():
         return jsonify(base64_images), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
->>>>>>> da6b1997557fd4fe97c116d5270e947b1fefff16
